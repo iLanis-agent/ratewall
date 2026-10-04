@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RateWall - five rate limiters, one trace</title>
+<meta name="description" content="Run the same request trace through token bucket, GCRA, leaky bucket, fixed window and sliding window and see who lets a burst through.">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; background:#101a0c; color:#f1f6ea; line-height:1.6; }
+  .wrap { max-width:680px; margin:0 auto; padding:48px 20px 60px; }
+  .logo { font-size:46px; font-weight:800; } .logo span { color:#bef264; }
+  .tag { font-size:19px; margin-top:10px; color:#dbe6cf; }
+  .cta { display:inline-block; margin-top:26px; background:#bef264; color:#101a0c; font-weight:700; padding:14px 30px; border-radius:12px; text-decoration:none; }
+  h2 { font-size:21px; margin:40px 0 10px; } li { color:#bccdb0; margin-bottom:8px; } ul { margin-left:20px; }
+  .demo { margin-top:26px; background:#1b2b14; border-radius:14px; padding:18px; } .demo b { color:#bef264; }
+  footer { margin-top:50px; font-size:13px; color:#8a9a7c; } a { color:#bef264; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Rate<span>Wall</span></div>
+  <div class="tag">A limit of 5 per second can let 10 through in a blink.</div>
+  <a class="cta" href="app.html">Open the app</a>
+  <div class="demo">Five requests at the end of one second and five at the start of the next all pass a <b>fixed window</b> limit of 5 per second: <b>10 requests in under 200 ms</b>. A token bucket or sliding log lets <b>5</b>.</div>
+  <h2>What it does</h2>
+  <ul><li>Five policies on one trace, shown as a timeline of allowed and denied requests</li><li>Token bucket, GCRA and leaky bucket meter give identical decisions</li><li>Shows the fixed window boundary burst</li><li>Retry-after, refill time and burst facts for the token bucket</li></ul>
+  <footer>Policies follow the Wikipedia descriptions; denied requests are dropped. Static, client-side, nothing stored. <a href="https://github.com/iLanis-agent/ratewall">Source</a></footer>
+</div>
+</body>
+</html>
