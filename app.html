@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RateWall - five rate limiters, one trace</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; background:#101a0c; color:#f1f6ea; line-height:1.5; }
+  .wrap { max-width:700px; margin:0 auto; padding:26px 16px 50px; }
+  h1 { font-size:28px; } h1 span { color:#bef264; }
+  .sub { color:#b4c4a6; margin:6px 0 16px; }
+  .card { background:#1b2b14; border-radius:14px; padding:14px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
+  label { font-size:12px; color:#b4c4a6; display:block; margin-bottom:3px; }
+  input,select { width:100%; background:#101a0c; color:#f1f6ea; border:1px solid #55664a; border-radius:8px; padding:8px; font-size:15px; font-family:inherit; }
+  button { background:#4d7c0f; color:#f1f6ea; border:0; padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; margin-right:6px; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; } td,th { text-align:left; padding:8px 4px; border-bottom:1px solid #33422b; } th { font-size:12px; color:#b4c4a6; font-weight:600; }
+  td.v { font-size:22px; font-weight:800; color:#bef264; } tr.me td.v { color:#f1f6ea; }
+  .stats { display:flex; gap:22px; flex-wrap:wrap; margin-top:12px; } .stats b { display:block; font-size:20px; } .muted { color:#b4c4a6; font-size:13px; }
+  .err { color:#ff9c8a; } .note { font-size:12.5px; color:#8a9a7c; margin-top:6px; }
+
+  td.v { font-size:17px; } td, th { font-size:14px; } .bar { height:10px; background:#101a0c; border-radius:6px; overflow:hidden; margin-top:6px; } .bar i { display:block; height:100%; background:#bef264; } .bar i.over { background:#ff7b72; } .no { color:#ff9c8a; }
+  .cb { display:inline-flex; align-items:center; gap:4px; margin-right:12px; font-size:14px; color:#f1f6ea; } .cb input { width:auto; } .big { font-family:monospace; font-size:26px; font-weight:800; color:#bef264; } td.v.m { font-family:monospace; }
+  textarea { width:100%; background:#101a0c; color:#f1f6ea; border:1px solid #55664a; border-radius:8px; padding:8px; font-size:14px; font-family:monospace; min-height:110px; } .ok { color:#86efac; font-weight:700; } .no { color:#ff9c8a; } td.m { font-family:monospace; } .chip { display:inline-block; font-family:monospace; background:#101a0c; border-radius:6px; padding:2px 6px; margin:2px 4px 2px 0; }
+  textarea { width:100%; background:#101a0c; color:#f1f6ea; border:1px solid #55664a; border-radius:8px; padding:8px; font-size:13px; font-family:monospace; min-height:130px; } .badge { display:inline-block; font-weight:800; padding:4px 12px; border-radius:20px; background:#101a0c; } .bar { height:14px; background:#101a0c; border-radius:8px; position:relative; margin:12px 0 6px; overflow:hidden; } .bar i.f { position:absolute; left:0; top:0; bottom:0; background:#84cc16; } .bar i.n { position:absolute; top:0; bottom:0; width:3px; background:#fff; }
+  .seg { display:inline-block; height:22px; background:#84cc16; border-radius:4px; margin:2px 2px 2px 0; vertical-align:middle; } .seg.last { background:#4d7c0f; } .chip { display:inline-block; font-family:monospace; background:#101a0c; border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; font-size:16px; }
+.tl{position:relative;height:26px;background:#101a0c;border-radius:6px;margin:4px 0 2px;overflow:hidden}.tl i{position:absolute;top:4px;width:5px;height:18px;border-radius:2px;margin-left:-2px}.tl i.a{background:#4ade80}.tl i.d{background:#f87171;opacity:.85}.tl b{position:absolute;top:0;bottom:0;width:1px;background:#55664a}.pn{font-size:13px;font-weight:700;margin-top:10px}.pn small{font-weight:400;color:#8a9a7c}.over{color:#ff9c8a;font-weight:700}</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rate<span>Wall</span></h1>
+  <div class="sub">Feed the same requests to a token bucket, GCRA, leaky bucket, fixed window and sliding window log. See who gets through, who is denied, and which one lets a burst past the limit.</div>
+  <div class="card">
+    <div class="grid"><div><label>Limit (requests)</label><input id="L" value="5"></div><div><label>Per window (seconds)</label><input id="W" value="1"></div><div><label>Burst for the bucket policies</label><input id="b" value="5"></div></div>
+    <label style="margin-top:10px">Arrival times in milliseconds (comma or space separated, in order)</label>
+    <textarea id="tr" spellcheck="false" style="min-height:70px"></textarea>
+    <button id="p1">Steady 5 per second</button><button id="p2">Burst of 12</button><button id="p3">Boundary attack</button><button id="p4">Hammering</button>
+    <div id="err" class="err" style="margin-top:6px"></div>
+  </div>
+  <div class="card"><div id="out"></div></div>
+  <div class="card"><h2 style="margin:0 0 8px;font-size:15px">Token bucket facts</h2><div id="facts"></div></div>
+  <div class="note">Token bucket, leaky bucket as a meter and the generic cell rate algorithm (virtual scheduling form) are described on Wikipedia as the same meter seen three ways, and here they give identical decisions on every trace (the tests check this on 600 random traces). Fixed window counts requests per aligned window, so a burst at the end of one window and the start of the next can pass up to twice the limit in a very short time. The sliding log keeps every accepted time. All policies drop denied requests (no queueing or shaping). Ties are decided in favor of the request: an arrival exactly when a token completes is accepted; Wikipedia's GCRA text writes the condition with a strict inequality, so a given implementation may differ at that exact millisecond. Times are whole milliseconds; the window must be a whole number of milliseconds. The window-length maximum counts accepted requests inside any span of the window length (window minus 1 ms, inclusive). Runs in your browser, nothing stored.</div>
+</div>
+<script src="engine.js"></script>
+<script>
+(function () {
+  var R = window.RateWall, $ = function (i) { return document.getElementById(i); };
+  function seq(n, step, start) { var o = []; for (var i = 0; i < n; i++) o.push((start || 0) + i * step); return o; }
+  function ham() { var s = 7, o = []; for (var i = 0; i < 40; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; o.push(s % 3000); } return o.sort(function (a, b) { return a - b; }); }
+  var PRE = { p1: seq(20, 200), p2: seq(12, 0).concat(seq(8, 250, 500)), p3: seq(5, 20, 900).concat(seq(5, 20, 1000)), p4: ham() };
+  Object.keys(PRE).forEach(function (k) { $(k).onclick = function () { $('tr').value = PRE[k].join(', '); $('L').value = '5'; $('W').value = '1'; $('b').value = '5'; run(); }; });
+  var NAMES = [['token', 'Token bucket', 'tokens refill steadily, a full bucket allows the burst'], ['gcra', 'GCRA', 'same decisions as the token bucket, tracked by one timestamp'], ['leaky', 'Leaky bucket (meter)', 'a counter that drains, mirror image of the token bucket'], ['fixed', 'Fixed window', 'resets at every window boundary'], ['sliding', 'Sliding window log', 'strictest: never more than the limit in any window']];
+  function run() {
+    var L = parseInt($('L').value, 10), Wsec = parseFloat($('W').value), W = Math.round(Wsec * 1000), b = parseInt($('b').value, 10), err = $('err');
+    err.textContent = '';
+    var txt = $('tr').value.trim(), times = txt ? txt.split(/[\s,;]+/).map(Number) : [];
+    function fail(m) { err.textContent = m; $('out').innerHTML = ''; $('facts').innerHTML = ''; }
+    if (!(L >= 1) || String(L) !== $('L').value.trim()) return fail('Limit must be a whole number of at least 1.');
+    if (!(Wsec > 0) || Math.abs(Wsec * 1000 - W) > 1e-6 || W < 1) return fail('Window must be a positive number of whole milliseconds, for example 1 or 0.5 seconds.');
+    if (!(b >= 1) || String(b) !== $('b').value.trim()) return fail('Burst must be a whole number of at least 1.');
+    if (!times.length) return fail('Add arrival times in milliseconds, or press a preset.');
+    if (times.length > 2000) return fail('Up to 2000 requests, please.');
+    for (var i = 0; i < times.length; i++) { if (!Number.isInteger(times[i]) || times[i] < 0) return fail('Arrival times must be whole non-negative milliseconds.'); if (i && times[i] < times[i - 1]) return fail('Arrival times must be in increasing order.'); }
+    var span = Math.max(times[times.length - 1], 1), h = '';
+    NAMES.forEach(function (p) {
+      var res = R.POLICIES[p[0]](times, L, W, b), s = R.summary(times, res, W), dots = '', bounds = '';
+      if (p[0] === 'fixed') for (var x = W; x <= span; x += W) bounds += '<b style="left:' + (x / span * 100) + '%"></b>';
+      times.forEach(function (t, i) { dots += '<i class="' + (res[i] ? 'a' : 'd') + '" style="left:' + (t / span * 99 + 0.3) + '%"></i>'; });
+      h += '<div class="pn">' + p[1] + ' <small>' + p[2] + '</small></div><div class="tl">' + bounds + dots + '</div><div class="muted">' + s.allowed + ' allowed, ' + s.denied + ' denied. Most in any ' + (W / 1000) + ' s span: <span class="' + (s.maxInWindow > L && (p[0] === 'fixed') ? 'over' : '') + '">' + s.maxInWindow + '</span>' + (s.maxInWindow > L && p[0] === 'fixed' ? ' (over the limit of ' + L + ')' : '') + '</div>';
+    });
+    h += '<div class="note">Green = allowed, red = denied. Time runs from 0 to ' + span + ' ms. Thin lines on the fixed window row are its window boundaries.</div>';
+    $('out').innerHTML = h;
+    var d = R.describe(L, W, b), ra = R.retryAfter(times, span, L, W, b);
+    $('facts').innerHTML = '<table><tr><td>Sustained rate</td><td class="v m">' + (Math.round(d.perSecond * 100) / 100) + ' per second</td></tr><tr><td>Burst from a full bucket</td><td class="v m">' + b + ' requests</td></tr><tr><td>Empty to full</td><td class="v m">' + (d.refillMs / 1000) + ' s</td></tr><tr><td>Most a ' + (W / 1000) + ' s span can hold (burst plus refill)</td><td class="v m">' + d.tokenWorst + '</td></tr><tr><td>A request right after this trace waits</td><td class="v m">' + ra + ' ms</td></tr></table>';
+  }
+  ['L', 'W', 'b', 'tr'].forEach(function (i) { $(i).oninput = run; });
+  $('p3').onclick();
+})();
+</script>
+</body>
+</html>
